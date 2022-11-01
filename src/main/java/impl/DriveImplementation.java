@@ -60,12 +60,12 @@ public class DriveImplementation extends Spec{
 
     @Override
     public void add(String pathSrc, String dirPath) throws IOException{
-        String name = pathSrc.substring(pathSrc.lastIndexOf('/')+1);
+        String name = getLastDir(pathSrc);
         File fileMetadata = new File();
         fileMetadata.setName(name);
-        fileMetadata.setParents(Collections.singletonList(checkPath(dirPath)));
+        fileMetadata.setParents(Collections.singletonList(checkPathExists(dirPath)));
         java.io.File file = new java.io.File(pathSrc);
-        String ext = name.substring(name.lastIndexOf('.')+1);
+        String ext = getFileExt(name);
         FileContent fileContent =
                 new FileContent(mimeTypes.containsKey(ext) ? mimeTypes.get(ext) : mimeTypes.get("default"),file);
         File fileDrive = service.files().create(fileMetadata,fileContent).execute();
@@ -81,9 +81,8 @@ public class DriveImplementation extends Spec{
         file.delete();
     }
 
-    private String checkPath(String path) throws IOException
+    protected String checkPathExists(String path) throws IOException
     {
-        String targetId;
         String[] folders = path.split("[\\/]+");
         String currId = rootFile.getId();
         for (String folder : folders)
@@ -97,10 +96,19 @@ public class DriveImplementation extends Spec{
         return currId;
     }
 
+
+    protected boolean checkPathContains(String path, String name)
+    {
+        String target = getLastDir(path);
+        if()
+        return false;
+    }
+
     private void loadDirectories() throws IOException
     {
         String currId = rootFile.getId();
         FileList fileList;
+
         Queue<File> q = new LinkedList<>();
         while(true) {
             fileList = service.files().list()
@@ -116,5 +124,16 @@ public class DriveImplementation extends Spec{
                 break;
             currId = q.poll().getId();
         }
+        getCurrDir().setDirNum(directories.size());
+    }
+
+
+    @Override
+    public void makeDir(String parPath, String name) throws IOException {
+        File fileMetadata = new File();
+        fileMetadata.setName(name);
+        fileMetadata.setMimeType("application/vnd.google-apps.folder");
+        fileMetadata.setParents(Arrays.asList(directories.get(getLastDir(parPath))));
+        FileList fileList =
     }
 }
