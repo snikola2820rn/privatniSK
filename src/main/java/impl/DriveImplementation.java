@@ -20,18 +20,16 @@ import java.util.stream.Collectors;
 
 public class DriveImplementation extends Spec{
 
-    static{
-        StorageManager.registerStorage(new DriveImplementation());
-    }
+//    static{
+//        StorageManager.registerStorage(new DriveImplementation());
+//    }
 
     private File rootFile;
     private Drive service;
     private Map<String,String> mimeTypes;
 
-    private Node tree;
-
-    private Node currPathNode;
-
+    private String configId;
+    
     public DriveImplementation()
     {
         try{
@@ -49,34 +47,59 @@ public class DriveImplementation extends Spec{
     @Override
     public void create() throws Exception {
         File folderMetadata = new File();
-        folderMetadata.setName(getCurrDir().getPath());
+        folderMetadata.setName(currDir.getPath());
         folderMetadata.setMimeType("application/vnd.google-apps.folder");
         rootFile = service.files().create(folderMetadata)
-                .setFields("id, name")
+                .setFields("id, name, mimeType, size, modifiedTime, createdTime")
                 .execute();
         makeConfigDrive();
-        loadDirectories();
-        currPathNode = tree;
-    }
-
-    @Override
-    protected void checkSize(long fileSize) throws Exception{
-        if(getCurrDir().getSize() + fileSize > getCurrDir().getSizeLimit())
-            throw new Exception("Storage size limit reached.");
-
+        load();
     }
 
     @Override
     protected Directory checkRootExists(String rootDir) throws Exception{
-        String rootId = service.files().get("root").setFields("id").execute().getId();
-        FileList checkExists = service.files().list().setFields("id, name").setQ(rootId + " in parents and name = "+rootDir).execute();
+        String currId = service.files().get("root").setFields("id").execute().getId();
+        FileList checkExists = service.files().list().setQ("'" + currId + "' in parents and name = '"+rootDir +"' and mimeType = 'application/vnd.google-apps.folder'").setFields("files(id, name, mimeType, size, modifiedTime, createdTime)").execute();
+//        String[] rootSplit = rootDir.split("[/]+");
+//        FileList checkExists = null;
+//        for(String dir : rootSplit)
+//        {
+//            checkExists = service.files().list().setQ("'" + currId + "' in parents and name = '"+dir +"' and mimeType = 'application/vnd.google-apps.folder'").setFields("files(id, name)").execute();
+//            if(checkExists.isEmpty())
+//            {
+//                File fileMetadata = new File();
+//                fileMetadata.setName(dir);
+//                fileMetadata.setMimeType("application/vnd.google-apps.folder");
+//                fileMetadata.setParents(Collections.singletonList(currId));
+//                File file = service.files().create(fileMetadata)
+//                        .setFields("id, name")
+//                        .execute();
+//                currId = file.getId();
+//                continue;
+//            }
+//            currId = checkExists.getFiles().get(0).getId();
+//        }
+//        checkExists = service.files().list().setQ("'" + currId + "' in parents").setFields("files(id, name)").execute();
+//        List<File> targets = new ArrayList<>();
+//        targets.addAll(checkExists.getFiles());
+//        Queue<File> queue = new LinkedList<>();
+//        queue.addAll(targets);
+//        while(!queue.isEmpty())
+//        {
+//            File curr = queue.poll();
+//            checkExists = service.files().list().setQ("'" + curr.getId() + "' in parents and name = '"+rootDir +"'").setFields("files(id, name)").execute();
+//            targets.addAll(checkExists.getFiles());
+//            queue.addAll(checkExists.getFiles());
+//        }
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Gson gson = new Gson();
         Directory dir = null;
         for(File file : checkExists.getFiles())
         {
-            FileList findConfig = service.files().list().setFields("id")
-                    .setQ(file.getId() + " in parents and name = 'config.json' and mimeType = '" + mimeTypes.get(".json") + "'").execute();
+            FileList findConfig = service.files().list()
+                    .setQ("'" + file.getId() + "' in parents and name = 'config.json' and mimeType = '" + mimeTypes.get("json") + "'")
+                    .setFields("files(id, name)")
+                    .execute();
             for(File config : findConfig.getFiles())
             {
                 service.files().get(config.getId()).executeMediaAndDownloadTo(outputStream);
@@ -88,7 +111,11 @@ public class DriveImplementation extends Spec{
                 {
                 }
             }
-            if (dir != null) break;
+            if (dir != null)
+            {
+                rootFile = file;
+                break;
+            }
         }
         return dir;
     }
@@ -98,12 +125,34 @@ public class DriveImplementation extends Spec{
         checkFileNum();
         java.io.File file = new java.io.File("src/main/resources/"+s);
         file.createNewFile();
-        add("src/main/resources/"+s,dirPath,checkContains,checkPath);
+        try {
+            add("src/main/resources/" + s, dirPath, checkContains, checkPath);
+        }
+        catch(Exception e)
+        {
+            file.delete();
+            throw new Exception(e.getMessage());
+        }
         file.delete();
     }
 
     @Override
+    protected void load() throws Exception {
+        try {
+            loadDirectories();
+        }
+        catch (Exception e)
+        {
+            rootFile = null;
+            rootObj = null;
+            throw e;
+        }
+        currPathObject = rootObj;
+    }
+
+    @Override
     public void add(String pathSrc, String dirPath,boolean checkContains, boolean checkPath) throws Exception{
+        checkFileNum();
         java.io.File file = new java.io.File(pathSrc);
         checkSize(file.length());
         if(!file.exists())
@@ -114,7 +163,7 @@ public class DriveImplementation extends Spec{
         String name = getLastDir(pathSrc);
         checkExtension(name);
 
-        Node parent = checkPath ? checkPathExists(dirPath) : currPathNode;
+        Node parent = checkPath ? checkPathExists(dirPath) : (Node)currPathObject;
         if(checkContains)
             checkPathContains(parent,name);
 
@@ -125,8 +174,8 @@ public class DriveImplementation extends Spec{
 
         FileContent fileContent =
                 new FileContent(mimeTypes.containsKey(ext) ? mimeTypes.get(ext) : mimeTypes.get("default"),file);
-        File fileDrive = service.files().create(fileMetadata,fileContent).execute();
-        ((NodeComposite)parent).addChildLeaf(fileDrive.getName(),fileDrive.getId(),fileDrive.getKind(),fileDrive.getSize(),fileDrive.getModifiedTime(),fileDrive.getCreatedTime());
+        File fileDrive = service.files().create(fileMetadata,fileContent).setFields("name, id, mimeType, size, createdTime, modifiedTime").execute();
+        ((NodeComposite)parent).addChildLeaf(fileDrive.getName(),fileDrive.getId(),fileDrive.getMimeType(),fileDrive.getSize(),fileDrive.getModifiedTime(),fileDrive.getCreatedTime());
         incrFileNum();
     }
 
@@ -141,15 +190,22 @@ public class DriveImplementation extends Spec{
         FileWriter fw = new FileWriter(file);
         fw.write(makeConfig());
         fw.close();
-        add("src/main/resources/config.json","",false,false);
+        File fileMetadata = new File();
+        fileMetadata.setName("config.json");
+        fileMetadata.setParents(Collections.singletonList(rootFile.getId()));
+        FileContent fileContent =
+                new FileContent(mimeTypes.get("json"),file);
+        File fileDrive = service.files().create(fileMetadata,fileContent).setFields("id").execute();
+        configId = fileDrive.getId();
+//        add("src/main/resources/config.json","",false,false);
         file.delete();
     }
 
     protected Node checkPathExists(String path) throws Exception
     {
-        Node start = currPathNode;
-        if(path.startsWith("../")) {
-            start = tree;
+        Node start = (Node)currPathObject;
+        if(path.charAt(0) == '*') {
+            start = (Node)rootObj;
             path = path.substring(3);
         }
         return checkPathExists(start,path);
@@ -157,9 +213,9 @@ public class DriveImplementation extends Spec{
 
     protected boolean checkPathContains(Object parent, String name) throws Exception
     {
-//        Node target = path.equals(getCurrPath()) ? currPathNode : ((NodeComposite)tree).getNodeByPath(path.split("[/]+"),0);;
+//        Node target = path.equals(getCurrPath()) ? currPathObject : ((NodeComposite)rootObj).getNodeByPath(path.split("[/]+"),0);;
         Node parentNode = (Node)parent;
-        if(!(parentNode instanceof NodeComposite))
+        if(!parentNode.isDirectory())
             throw new Exception("Requested path is file.");
         if (((NodeComposite)parent).children.containsKey(name))
             throw new Exception("Requested path already contains file of same name.");
@@ -169,8 +225,8 @@ public class DriveImplementation extends Spec{
 
     private void loadDirectories() throws Exception
     {
-        tree = new NodeComposite(rootFile.getName(),rootFile.getId(),rootFile.getKind(),rootFile.getSize(),rootFile.getModifiedTime(),rootFile.getCreatedTime());
-        ((NodeComposite)tree).populateTree();
+        rootObj = new NodeComposite(null, rootFile.getName(),rootFile.getId(),rootFile.getMimeType(),rootFile.getModifiedTime(),rootFile.getCreatedTime());
+        ((NodeComposite)rootObj).populateTree();
     }
 
     @Override
@@ -185,7 +241,7 @@ public class DriveImplementation extends Spec{
         File file = service.files().create(fileMetadata)
                 .setFields("id, name")
                 .execute();
-        ((NodeComposite)parent).addChildComp(file.getName(),file.getId(),file.getKind(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
+        ((NodeComposite)parent).addChildComp(file.getName(),file.getId(),file.getMimeType(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
         incrDirNum();
     }
 
@@ -196,7 +252,7 @@ public class DriveImplementation extends Spec{
     }
 
     @Override
-    public List<Map<String,Object>> ls(int i, String path) throws Exception{
+    public List<Map<Properties,Object>> ls(int i, String path) throws Exception{
         //?
         String query = "name";
 //        List<spec.Properties> prop = getProperties();
@@ -211,12 +267,12 @@ public class DriveImplementation extends Spec{
 //        if(prop.contains(Properties.TYPE))
 //            query+=", kind";
         List<Node> target = null;
-        List<Map<String,Object>> result = null;
+        List<Map<Properties,Object>> result = null;
         switch(i)
         {
             case 1:
             {
-                target = ((NodeComposite)currPathNode).getChildren();
+                target = ((NodeComposite)currPathObject).getChildren();
                 break;
             }
             case 2:
@@ -233,7 +289,7 @@ public class DriveImplementation extends Spec{
             }
             case 4:
             {
-                target = ((NodeComposite)tree).getChildrenRec();
+                target = ((NodeComposite)rootObj).getChildrenRec();
                 target = target.stream()
                         .filter(x -> x.name.endsWith(path))
                         .collect(Collectors.toList());
@@ -241,7 +297,7 @@ public class DriveImplementation extends Spec{
             }
             case 5:
             {
-                target = ((NodeComposite)tree).getChildrenRec();
+                target = ((NodeComposite)rootObj).getChildrenRec();
                 target = target.stream()
                         .filter(x -> x.name.contains(path))
                         .sorted()
@@ -250,17 +306,18 @@ public class DriveImplementation extends Spec{
             }
         }
         if (target.isEmpty())
-            throw new Exception("No files with requstesd criteria.");
+            throw new Exception("No files with requsted criteria.");
         result = new ArrayList<>();
-        Map<String,Object> map = null;
+        Map<Properties,Object> map = null;
         for(Node node : target)
         {
             map = new HashMap<>();
-            map.put("name",node.name);
-            map.put("type",node.type);
-            map.put("dateModified",node.dateModified);
-            map.put("dateCreated",node.dateCreated);
-            map.put("size",node.size);
+            map.put(Properties.NAME,node.name);
+            map.put(Properties.CREATEDTIME,node.dateCreated);
+            map.put(Properties.MODIFIEDTIME,node.dateModified);
+            map.put(Properties.SIZE,node.size);
+            map.put(Properties.TYPE,node.type);
+            map.put(Properties.ISDIRECTORY,node.isDirectory());
             result.add(map);
         }
         result.sort(getComparator());
@@ -289,6 +346,14 @@ public class DriveImplementation extends Spec{
         file = service.files().update(target.id, null).setAddParents(destNode.id).setRemoveParents(prevParent).setFields("id, parents").execute();
     }
 
+    @Override
+    protected void moveBack() throws Exception {
+        if(((Node)currPathObject).parent == null)
+            throw new Exception("Cannot go further back in root directory.");
+        currPathObject = ((Node)currPathObject).parent;
+        currPath = reconCurrPath();
+    }
+
     public void delete(String path, boolean checkPath) throws Exception
     {
 //        String pathSplit = path.substring(0,path.lastIndexOf("/"));
@@ -308,21 +373,39 @@ public class DriveImplementation extends Spec{
             return;
         if(getCurrPath().startsWith(path)) //ako nam putanje pocinju sa . ovo bi ukljucilo i takve situacije
         {
-            if(path.equals(".."))
+            if(path.equals("*"))
                 throw new Exception("Can't delete storage.");
             setCurrPath(path.substring(0,path.lastIndexOf('/')));
         }
-        Node target = targetPar.removeChild(pathSplit[pathSplit.length - 1]);
+        Node target = targetPar.getChild(pathSplit[pathSplit.length - 1]);
+        if(target.id.equals(configId))
+            throw new Exception("Cannot delete config file of storage.");
+//        Node target = targetPar.removeChild(pathSplit[pathSplit.length - 1]);
+        targetPar.removeChild(pathSplit[pathSplit.length - 1]);
         service.files().delete(target.id).execute();
     }
 
     private Node checkPathExistsParent(String[] path) throws Exception
     {
-        Node start = path[0].equals("..") ? tree : currPathNode;
+        Node start = path[0].equals("*") ? (Node)rootObj : (Node)currPathObject;
         Node result = ((NodeComposite)start).getParentFromPath(path,0);
         if (result == null)
             throw new Exception("Invalid path: " + String.join("/",path));
         return result;
+    }
+
+    private String reconCurrPath()
+    {
+        if(currPathObject == rootObj)
+            return "*";
+        String result = ((Node)currPathObject).name;
+        NodeComposite curr = ((Node)currPathObject).parent;
+        while (curr != null)
+        {
+            result = curr.name + "/" + result;
+            curr = curr.parent;
+        }
+        return "*/" + result;
     }
 
     private Node checkPathExists(Node start, String path) throws Exception
@@ -338,8 +421,10 @@ public class DriveImplementation extends Spec{
         protected String name,id,type;
         protected long size;
         protected DateTime dateModified, dateCreated;
+        protected NodeComposite parent;
 
-        public Node(String name, String id, String type,long size, DateTime dateModified, DateTime dateCreated) {
+        public Node(NodeComposite parent, String name, String id, String type,long size, DateTime dateModified, DateTime dateCreated) {
+            this.parent = parent;
             this.name = name;
             this.id = id;
             this.type = type;
@@ -358,8 +443,8 @@ public class DriveImplementation extends Spec{
     {
         private Map<String,Node> children;
 
-        public NodeComposite(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated) {
-            super(name, id, type, size, dateModified, dateCreated);
+        public NodeComposite(NodeComposite parent, String name, String id, String type, DateTime dateModified, DateTime dateCreated) {
+            super(parent, name, id, type, 0, dateModified, dateCreated);
             this.children = new HashMap<>();
         }
 
@@ -370,31 +455,38 @@ public class DriveImplementation extends Spec{
 
         private void addChildLeaf(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated)
         {
-            children.put(name,new Node(name,id,type,size,dateModified,dateCreated));
+            children.put(name,new Node(this,name,id,type,size,dateModified,dateCreated));
         }
 
         private void addChildComp(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated)
         {
-            children.put(name,new NodeComposite(name,id,type,size,dateModified,dateCreated));
+            children.put(name,new NodeComposite(this,name,id,type,dateModified,dateCreated));
         }
 
         private void populateTree() throws Exception
         {
             FileList fileList = service.files().list()
-                    .setQ(this.id+ "' in parents")
+                    .setQ("'"+this.id+ "' in parents")
                     .setSpaces("drive")
-                    .setFields("id, name, modifiedTime, createdTime, kind, size")
+                    .setFields("files(id, name, modifiedTime, createdTime, size, mimeType)")
                     .execute();
             for(File file : fileList.getFiles())
             {
                 Node child;
                 if (file.getMimeType().equals("application/vnd.google-apps.folder"))
                 {
-                    child = new NodeComposite(file.getName(),file.getId(),file.getKind(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
+                    incrDirNum();
+                    child = new NodeComposite(this, file.getName(),file.getId(),file.getMimeType(),file.getModifiedTime(),file.getCreatedTime());
                     ((NodeComposite)child).populateTree();
                 }
                 else
-                    child = new Node(file.getName(),file.getId(),file.getKind(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
+                {
+                    checkSize(file.getSize());
+                    checkFileNum();
+                    incrFileNum();
+                    incrSize(file.getSize());
+                    child = new Node(this, file.getName(),file.getId(),file.getMimeType(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
+                }
                 addChild(child);
             }
         }
