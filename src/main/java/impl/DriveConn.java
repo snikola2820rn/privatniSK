@@ -90,22 +90,22 @@ public class DriveConn {
                 .build();
     }
 
-    public static void main(String[] args) throws IOException {
-
-        Drive service = getDriveService();
-
-        FileList result = service.files().list()
-                .setPageSize(10)
-                .setFields("nextPageToken, files(id, name)")
-                .execute();
-        List<File> files = result.getFiles();
-        if (files == null || files.isEmpty()) {
-            System.out.println("No files found.");
-        } else {
-            System.out.println("Files:");
-            for (File file : files) {
-                System.out.printf("%s (%s)\n", file.getName(), file.getId());
-            }
-        }
-    }
+//    public static void main(String[] args) throws IOException {
+//
+//        Drive service = getDriveService();
+//
+//        FileList result = service.files().list()
+//                .setPageSize(10)
+//                .setFields("nextPageToken, files(id, name)")
+//                .execute();
+//        List<File> files = result.getFiles();
+//        if (files == null || files.isEmpty()) {
+//            System.out.println("No files found.");
+//        } else {
+//            System.out.println("Files:");
+//            for (File file : files) {
+//                System.out.printf("%s (%s)\n", file.getName(), file.getId());
+//            }
+//        }
+//    }
 }

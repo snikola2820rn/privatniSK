@@ -15,7 +15,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.domaci1</groupId>
+            <groupId>org.domaci1SK</groupId>
             <artifactId>spec</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
