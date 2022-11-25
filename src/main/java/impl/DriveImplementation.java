@@ -15,6 +15,11 @@ import spec.StorageManager;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -147,6 +152,8 @@ public class DriveImplementation extends Spec{
             rootObj = null;
             throw e;
         }
+        if(configId==null)
+            configId =  ((NodeComposite)rootObj).getChild("config.json").id;
         currPathObject = rootObj;
     }
 
@@ -163,7 +170,7 @@ public class DriveImplementation extends Spec{
         String name = getLastDir(pathSrc);
         checkExtension(name);
 
-        Node parent = checkPath ? checkPathExists(dirPath) : (Node)currPathObject;
+        Node parent = checkPath ? checkPathExistsDirectory(dirPath) : (Node)currPathObject;
         if(checkContains)
             checkPathContains(parent,name);
 
@@ -203,12 +210,16 @@ public class DriveImplementation extends Spec{
 
     protected Node checkPathExists(String path) throws Exception
     {
+        if(path == null || path.isEmpty())
+            return (Node)currPathObject;
         Node start = (Node)currPathObject;
-        if(path.charAt(0) == '*') {
-            start = (Node)rootObj;
-            path = path.substring(3);
-        }
-        return checkPathExists(start,path);
+        List<String> target = new ArrayList<>(Arrays.asList(path.split("[/]+")));
+        if(target.size() == 0)
+            return start;
+        Node result = ((NodeComposite)start).getNodeByPath(target,0);
+        if(result == null)
+            throw new Exception("Requested path: " + path + " doesn't exist.");
+        return result;
     }
 
     protected boolean checkPathContains(Object parent, String name) throws Exception
@@ -231,7 +242,7 @@ public class DriveImplementation extends Spec{
 
     @Override
     public void makeDir(String parPath, String name, boolean checkContains, boolean checkPath) throws Exception {
-        Node parent = checkPathExists(parPath);
+        Node parent = checkPath ? checkPathExistsDirectory(parPath) : (Node)currPathObject;
         if(checkContains)
             checkPathContains(parent,name);
         File fileMetadata = new File();
@@ -239,70 +250,71 @@ public class DriveImplementation extends Spec{
         fileMetadata.setMimeType("application/vnd.google-apps.folder");
         fileMetadata.setParents(Collections.singletonList(parent.id));
         File file = service.files().create(fileMetadata)
-                .setFields("id, name")
+                .setFields("id, name, mimeType, modifiedTime, createdTime")
                 .execute();
-        ((NodeComposite)parent).addChildComp(file.getName(),file.getId(),file.getMimeType(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
+        ((NodeComposite)parent).addChildComp(file.getName(),file.getId(),file.getMimeType(),file.getModifiedTime(),file.getCreatedTime());
         incrDirNum();
     }
 
-
     @Override
-    public void openDir(String path) throws Exception {
-        setCurrPath(path);
-    }
-
-    @Override
-    public List<Map<Properties,Object>> ls(int i, String path) throws Exception{
+    public List<Map<Properties,Object>> ls(int i, String[] args) throws Exception{
         //?
-        String query = "name";
-//        List<spec.Properties> prop = getProperties();
-//        if(prop.contains(Properties.DATE))
-//            query+=", modifiedTime";
-//        if(prop.contains(Properties.READ))
-//            query+=", modifiedTime";
-//        if(prop.contains(Properties.WRITE))
-//            query+=", canEdit";
-//        if(prop.contains(Properties.LENGTH))
-//            query+=", size";
-//        if(prop.contains(Properties.TYPE))
-//            query+=", kind";
         List<Node> target = null;
-        List<Map<Properties,Object>> result = null;
+        List<Map<Properties,Object>> result;
         switch(i)
         {
             case 1:
             {
-                target = ((NodeComposite)currPathObject).getChildren();
-                break;
-            }
-            case 2:
-            {
-                target = ((NodeComposite)checkPathExists(path)).getChildren();
+                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildren();
                 //todo: ovde treba da vidimo da kako ce tretiramo adrese, po ovom trenutno sto pis
                 // e i guess da se radi apsolutno
                 break;
             }
+            case 2:
+            {
+                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
+                break;
+            }
             case 3:
             {
-                target = ((NodeComposite)checkPathExists(path)).getChildrenRec();
+                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
+                target = target.stream()
+                        .filter(x -> x.name.endsWith(args[0]))
+                        .collect(Collectors.toList());
                 break;
             }
             case 4:
             {
-                target = ((NodeComposite)rootObj).getChildrenRec();
+                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
                 target = target.stream()
-                        .filter(x -> x.name.endsWith(path))
+                        .filter(x -> x.name.contains(args[0]))
+                        .sorted()
                         .collect(Collectors.toList());
                 break;
             }
             case 5:
             {
-                target = ((NodeComposite)rootObj).getChildrenRec();
-                target = target.stream()
-                        .filter(x -> x.name.contains(path))
-                        .sorted()
-                        .collect(Collectors.toList());
-                break;
+//                LocalDateTime date1 = null;
+//                LocalDateTime date2 = null;
+//                for(DateTimeFormatter dateTimeFormatter : dateFormats) {
+//                    try {
+//                        date1 = LocalDateTime.parse(args[0], dateTimeFormatter);
+//                        date2 = LocalDateTime.parse(args[1], dateTimeFormatter);
+//                    } catch (Exception e) {
+//                        continue;
+//                    }
+//                }
+//                if(date1 == null || date2 == null)
+//                    throw new Exception("Invalid date format.");
+//                target = ((NodeComposite)rootObj).getChildrenRec();
+//                target = target.stream()
+//                        .filter(x -> {
+//                            Instant in = Instant.parse(x.dateCreated.toString());
+//                            LocalDateTime xTime = LocalDateTime.ofInstant(in, ZoneId.systemDefault());
+//                            return xTime.isAfter(date1) && xTime ;
+//                        })
+//                        .sorted()
+//                        .collect(Collectors.toList());
             }
         }
         if (target.isEmpty())
@@ -313,11 +325,11 @@ public class DriveImplementation extends Spec{
         {
             map = new HashMap<>();
             map.put(Properties.NAME,node.name);
-            map.put(Properties.CREATEDTIME,node.dateCreated);
-            map.put(Properties.MODIFIEDTIME,node.dateModified);
-            map.put(Properties.SIZE,node.size);
+            map.put(Properties.CREATEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateCreated.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
+            map.put(Properties.MODIFIEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateModified.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
+            map.put(Properties.SIZE, Long.valueOf(node.size));
             map.put(Properties.TYPE,node.type);
-            map.put(Properties.ISDIRECTORY,node.isDirectory());
+            map.put(Properties.ISDIRECTORY,Boolean.valueOf(node.isDirectory()));
             result.add(map);
         }
         result.sort(getComparator());
@@ -326,24 +338,29 @@ public class DriveImplementation extends Spec{
 
     @Override
     public void move(String path,String destPath) throws Exception{
-        String[] pathSplit = path.split("[/]+");
-        NodeComposite targetPar = (NodeComposite)checkPathExistsParent(pathSplit);
-        boolean flag = true;
-        try
+        Node target = checkPathExists(path);
+        if (target == rootObj)
+            throw new Exception("Cannot move root directory.");
+        Node destNode = checkPathExistsDirectory(destPath);
+        if(target.isDirectory())
         {
-            flag = checkPathContains(targetPar,pathSplit[pathSplit.length-1]);
+            if (target == destNode)
+                throw new Exception("Cannot move directory into itself.");
+            if (target.parent == destNode)
+                throw new Exception("Requested file is already in requested directory.");
+            Node curr = destNode.parent;
+            while (curr != rootObj) {
+                if (curr == target)
+                    throw new Exception("Cannot move a parent directory into a child directory.");
+                curr = curr.parent;
+            }
         }
-        catch (Exception e){}
-        if(flag == false)
-            return;
-        Node destNode = checkPathExists(destPath);
-        if(!(destNode instanceof NodeComposite))
-            throw new Exception("Destination path is file.");
-        Node target = targetPar.removeChild(pathSplit[pathSplit.length - 1]);
+        NodeComposite targetPar = target.parent;
+        targetPar.removeChild(target);
         ((NodeComposite)destNode).addChild(target);
-        File file  = service.files().get(target.id).setFields("parents").execute();
-        String prevParent = file.getParents().get(0);
-        file = service.files().update(target.id, null).setAddParents(destNode.id).setRemoveParents(prevParent).setFields("id, parents").execute();
+//        File file  = service.files().get(target.id).setFields("parents").execute();
+//        String prevParent = file.getParents().get(0);
+        service.files().update(target.id, null).setAddParents(destNode.id).setRemoveParents(targetPar.id).setFields("id, parents").execute();
     }
 
     @Override
@@ -356,32 +373,26 @@ public class DriveImplementation extends Spec{
 
     public void delete(String path, boolean checkPath) throws Exception
     {
-//        String pathSplit = path.substring(0,path.lastIndexOf("/"));
-//        String childStr = path.substring(path.lastIndexOf("/")+1);
-//        String pathChild = path.substring(path.lastIndexOf('/'));
-
-        String[] pathSplit = path.split("[/]+");
-        NodeComposite targetPar = (NodeComposite)checkPathExistsParent(pathSplit);
-        //if(path.startsWith(".../"))
-        boolean flag = true;
-        try
-        {
-            flag = checkPathContains(targetPar,pathSplit[pathSplit.length-1]);
-        }
-        catch (Exception ignored){}
-        if(!flag)
-            return;
-        if(getCurrPath().startsWith(path)) //ako nam putanje pocinju sa . ovo bi ukljucilo i takve situacije
-        {
-            if(path.equals("*"))
-                throw new Exception("Can't delete storage.");
-            setCurrPath(path.substring(0,path.lastIndexOf('/')));
-        }
-        Node target = targetPar.getChild(pathSplit[pathSplit.length - 1]);
-        if(target.id.equals(configId))
+        Node target = checkPathExists(path);
+        if(target == rootObj)
+            throw new Exception("Cannot delete storage.");
+        if(target.parent == rootObj && Objects.equals(target.name, "config.json"))
             throw new Exception("Cannot delete config file of storage.");
-//        Node target = targetPar.removeChild(pathSplit[pathSplit.length - 1]);
-        targetPar.removeChild(pathSplit[pathSplit.length - 1]);
+        Node curr = (Node)currPathObject;
+        while(curr != rootObj)
+        {
+            if(curr == target)
+            {
+                currPathObject = target.parent;
+                currPath = reconCurrPath();
+                break;
+            }
+            curr = curr.parent;
+        }
+
+        NodeComposite targetPar = target.parent;
+        targetPar.removeChild(target);
+        currDir.setSize(currDir.getSize() - target.size);
         service.files().delete(target.id).execute();
     }
 
@@ -394,26 +405,60 @@ public class DriveImplementation extends Spec{
         return result;
     }
 
+//    private void incrSizeParents(long size)
+//    {
+//        Node curr = (Node)currPathObject;
+//        while (curr != null)
+//        {
+//            curr.size += size;
+//            curr = curr.parent;
+//        }
+//    }
+//
+//    private void decrSizeParents(long size)
+//    {
+//        Node curr = (Node)currPathObject;
+//        while(curr!=null)
+//        {
+//            curr.size -= size;
+//            curr = curr.parent;
+//        }
+//    }
+
+    protected Node checkPathExistsDirectory(String path) throws Exception
+    {
+        Node result = checkPathExists(path);
+        if(!result.isDirectory())
+            throw new Exception("Requested path is file.");
+        return result;
+    }
+
     private String reconCurrPath()
     {
         if(currPathObject == rootObj)
             return "*";
-        String result = ((Node)currPathObject).name;
+        StringBuilder result = new StringBuilder(((Node) currPathObject).name);
         NodeComposite curr = ((Node)currPathObject).parent;
-        while (curr != null)
+        while (curr.parent != null)
         {
-            result = curr.name + "/" + result;
+            result.insert(0, curr.name + "/");
             curr = curr.parent;
         }
         return "*/" + result;
     }
 
-    private Node checkPathExists(Node start, String path) throws Exception
+    private String reconPathByNode(Node node)
     {
-        Node result = ((NodeComposite)start).getNodeByPath(path.split("[/]+"),0);
-        if(result == null)
-            throw new Exception("Requested path: " + path + " doesn't exist.");
-        return result;
+        if(node == rootObj)
+            return "*";
+        StringBuilder result = new StringBuilder(((Node) node).name);
+        NodeComposite curr = ((Node)node).parent;
+        while (curr.parent != null)
+        {
+            result.insert(0, curr.name + "/");
+            curr = curr.parent;
+        }
+        return "*/" + result;
     }
 
     private class Node
@@ -451,16 +496,35 @@ public class DriveImplementation extends Spec{
         private void addChild(Node child)
         {
             children.put(child.name,child);
+            if(child.size == 0)
+                return;
+            this.incrSizeRec(child.size);
+        }
+
+        private void addChildPopulate(Node child)
+        {
+            children.put(child.name,child);
         }
 
         private void addChildLeaf(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated)
         {
             children.put(name,new Node(this,name,id,type,size,dateModified,dateCreated));
+            if(size == 0)
+                return;
+            this.incrSizeRec(size);
         }
 
-        private void addChildComp(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated)
+        private void addChildComp(String name, String id, String type, DateTime dateModified, DateTime dateCreated)
         {
             children.put(name,new NodeComposite(this,name,id,type,dateModified,dateCreated));
+        }
+
+        private void incrSizeRec(long size)
+        {
+            this.size += size;
+            if(this.parent == null)
+                return;
+            this.parent.incrSizeRec(size);
         }
 
         private void populateTree() throws Exception
@@ -487,17 +551,34 @@ public class DriveImplementation extends Spec{
                     incrSize(file.getSize());
                     child = new Node(this, file.getName(),file.getId(),file.getMimeType(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
                 }
-                addChild(child);
+                addChildPopulate(child);
+                this.size+= child.size;
             }
         }
 
-        private Node getNodeByPath(String[] path, int ind)
+        private Node getNodeByPath(List<String> path, int ind)
         {
-            if(ind == path.length)
+            if(ind == path.size())
                 return this;
-            Node child = children.getOrDefault(path[ind],null);
-            if(!(child instanceof NodeComposite))
-                return null;
+            Node child = children.getOrDefault(path.get(ind),null);
+            if (child == null)
+            {
+                if (ind == 0) {
+                    if(path.get(ind).isEmpty())
+                        return this.getNodeByPath(path, ind + 1);
+                    if(path.get(ind).length() == 1 && path.get(ind).charAt(0) == '*')
+                        return ((NodeComposite)rootObj).getNodeByPath(path,ind+1);
+                    return null;
+                }
+                else
+                    return null;
+            }
+            if(!(child instanceof NodeComposite)) {
+                if(ind == path.size() - 1)
+                    return child;
+                else
+                    return null;
+            }
             return ((NodeComposite)child).getNodeByPath(path,ind+1);
         }
 
@@ -559,7 +640,23 @@ public class DriveImplementation extends Spec{
 
         private Node removeChild(String path)
         {
-            return children.remove(path);
+            Node target = children.remove(path);
+            if(target.size != 0)
+                this.decrSizeRec(target.size);
+            return target;
+        }
+
+        private void decrSizeRec(long size)
+        {
+            this.size -= size;
+            if(this.parent == null)
+                return;
+            this.parent.decrSizeRec(size);
+        }
+
+        public void removeChild(Node child)
+        {
+            removeChild(child.name);
         }
 
         @Override
