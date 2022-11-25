@@ -257,38 +257,47 @@ public class DriveImplementation extends Spec{
     }
 
     @Override
-    public List<Map<Properties,Object>> ls(int i, String[] args) throws Exception{
+    public Map<String,List<Map<Properties,Object>>> ls(String path,int i, boolean rec,String[] args) throws Exception{
         //?
-        List<Node> target = null;
-        List<Map<Properties,Object>> result;
+        List<Node> target = rec ? ((NodeComposite)checkPathExistsDirectory(path)).getChildrenRec()
+                : ((NodeComposite)checkPathExistsDirectory(path)).getChildren();
+        Map<String,List<Map<Properties,Object>>> result;
         switch(i)
         {
             case 1:
             {
-                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildren();
-                //todo: ovde treba da vidimo da kako ce tretiramo adrese, po ovom trenutno sto pis
-                // e i guess da se radi apsolutno
                 break;
             }
             case 2:
             {
-                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
+                for(String ext:args)
+                {
+                    if(!mimeTypes.containsKey(ext))
+                        throw new Exception(args[0] + " is not an extension.");
+                }
+                target = target.stream()
+                        .filter(x -> {
+                            for(String ext:args)
+                            {
+                                if(x.name.endsWith(ext))
+                                    return true;
+                            }
+                            return false;
+                        })
+                        .collect(Collectors.toList());
                 break;
             }
             case 3:
             {
-                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
                 target = target.stream()
-                        .filter(x -> x.name.endsWith(args[0]))
-                        .collect(Collectors.toList());
-                break;
-            }
-            case 4:
-            {
-                target = ((NodeComposite)checkPathExistsDirectory(args[0])).getChildrenRec();
-                target = target.stream()
-                        .filter(x -> x.name.contains(args[0]))
-                        .sorted()
+                        .filter(x -> {
+                            for(String text:args)
+                            {
+                                if(x.name.contains(text))
+                                    return true;
+                            }
+                            return false;
+                        })
                         .collect(Collectors.toList());
                 break;
             }
@@ -318,21 +327,37 @@ public class DriveImplementation extends Spec{
             }
         }
         if (target.isEmpty())
-            throw new Exception("No files with requsted criteria.");
-        result = new ArrayList<>();
+            throw new Exception("No files with requested criteria.");
+        result = new HashMap<>();
         Map<Properties,Object> map = null;
+        Map<Node,List<Map<Properties,Object>>> resultTmp  = new HashMap<>();
         for(Node node : target)
         {
+            if(!resultTmp.containsKey(node.parent))
+                resultTmp.put(node.parent, new ArrayList<>());
             map = new HashMap<>();
-            map.put(Properties.NAME,node.name);
-            map.put(Properties.CREATEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateCreated.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
-            map.put(Properties.MODIFIEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateModified.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
-            map.put(Properties.SIZE, Long.valueOf(node.size));
-            map.put(Properties.TYPE,node.type);
-            map.put(Properties.ISDIRECTORY,Boolean.valueOf(node.isDirectory()));
-            result.add(map);
+            if(getProperties().contains(Properties.NAME))
+                map.put(Properties.NAME,node.name);
+            if(getProperties().contains(Properties.CREATEDTIME))
+                map.put(Properties.CREATEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateCreated.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
+            if(getProperties().contains(Properties.MODIFIEDTIME))
+                map.put(Properties.MODIFIEDTIME,LocalDateTime.ofInstant(Instant.parse(node.dateModified.toString()),ZoneId.systemDefault()).format(dateFormats[2]));
+            if(getProperties().contains(Properties.SIZE))
+                map.put(Properties.SIZE, Long.valueOf(node.size));
+            if(getProperties().contains(Properties.TYPE))
+                map.put(Properties.TYPE,node.type);
+            if(getProperties().contains(Properties.ISDIRECTORY))
+                map.put(Properties.ISDIRECTORY,Boolean.valueOf(node.isDirectory()));
+            resultTmp.get(node.parent).add(map);
         }
-        result.sort(getComparator());
+        for(List<Map<Properties,Object>> list : resultTmp.values())
+        {
+            list.sort(getComparator());
+        }
+        for(Map.Entry<Node,List<Map<Properties,Object>>> entry : resultTmp.entrySet())
+        {
+            result.put(reconPathByNode(entry.getKey()),entry.getValue());
+        }
         return result;
     }
 
@@ -433,7 +458,7 @@ public class DriveImplementation extends Spec{
         return result;
     }
 
-    private String reconCurrPath()
+    protected String reconCurrPath()
     {
         if(currPathObject == rootObj)
             return "*";
@@ -610,14 +635,20 @@ public class DriveImplementation extends Spec{
             List<Node> childrenComp = null;
 
             while(currNode != null) {
-                childrenLeaf = currNode.children.values().stream()
-                        .filter(x-> !(x instanceof NodeComposite))
-                        .collect(Collectors.toList());
-                childrenComp = currNode.children.values().stream()
-                        .filter(x-> x instanceof NodeComposite)
-                        .collect(Collectors.toList());
-                result.addAll(childrenLeaf);
-                q.addAll(childrenComp);
+                if(!currNode.isDirectory())
+                {
+                    currNode = (NodeComposite) q.poll();
+                    continue;
+                }
+
+//                childrenLeaf = currNode.children.values().stream()
+//                        .filter(x-> !(x instanceof NodeComposite))
+//                        .collect(Collectors.toList());
+//                childrenComp = currNode.children.values().stream()
+//                        .filter(x-> x instanceof NodeComposite)
+//                        .collect(Collectors.toList());
+                result.addAll(this.children.values());
+                q.addAll(this.children.values());
                 currNode = (NodeComposite) q.poll();
             }
             return result;
