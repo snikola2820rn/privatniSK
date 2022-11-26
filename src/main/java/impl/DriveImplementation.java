@@ -25,9 +25,9 @@ import java.util.stream.Collectors;
 
 public class DriveImplementation extends Spec{
 
-//    static{
-//        StorageManager.registerStorage(new DriveImplementation());
-//    }
+    static{
+        StorageManager.registerStorage(new DriveImplementation());
+    }
 
     private File rootFile;
     private Drive service;
@@ -184,6 +184,7 @@ public class DriveImplementation extends Spec{
         File fileDrive = service.files().create(fileMetadata,fileContent).setFields("name, id, mimeType, size, createdTime, modifiedTime").execute();
         ((NodeComposite)parent).addChildLeaf(fileDrive.getName(),fileDrive.getId(),fileDrive.getMimeType(),fileDrive.getSize(),fileDrive.getModifiedTime(),fileDrive.getCreatedTime());
         incrFileNum();
+        incrSize(fileDrive.getSize());
     }
 
     @Override
@@ -308,6 +309,7 @@ public class DriveImplementation extends Spec{
 //                    try {
 //                        date1 = LocalDateTime.parse(args[0], dateTimeFormatter);
 //                        date2 = LocalDateTime.parse(args[1], dateTimeFormatter);
+//                        break;
 //                    } catch (Exception e) {
 //                        continue;
 //                    }
@@ -382,8 +384,6 @@ public class DriveImplementation extends Spec{
         NodeComposite targetPar = target.parent;
         targetPar.removeChild(target);
         ((NodeComposite)destNode).addChild(target);
-//        File file  = service.files().get(target.id).setFields("parents").execute();
-//        String prevParent = file.getParents().get(0);
         service.files().update(target.id, null).setAddParents(destNode.id).setRemoveParents(targetPar.id).setFields("id, parents").execute();
     }
 
@@ -416,8 +416,11 @@ public class DriveImplementation extends Spec{
 
         NodeComposite targetPar = target.parent;
         targetPar.removeChild(target);
-        currDir.setSize(currDir.getSize() - target.size);
+//        currDir.setSize(currDir.getSize() - target.size);
+//        currDir.setFileNum()
         service.files().delete(target.id).execute();
+        decrFileNum(target.fileNum);
+        decrSize(target.size);
     }
 
     private Node checkPathExistsParent(String[] path) throws Exception
@@ -491,6 +494,7 @@ public class DriveImplementation extends Spec{
         protected long size;
         protected DateTime dateModified, dateCreated;
         protected NodeComposite parent;
+        protected int fileNum = 1;
 
         public Node(NodeComposite parent, String name, String id, String type,long size, DateTime dateModified, DateTime dateCreated) {
             this.parent = parent;
@@ -515,14 +519,15 @@ public class DriveImplementation extends Spec{
         public NodeComposite(NodeComposite parent, String name, String id, String type, DateTime dateModified, DateTime dateCreated) {
             super(parent, name, id, type, 0, dateModified, dateCreated);
             this.children = new HashMap<>();
+            this.fileNum = 0;
         }
 
         private void addChild(Node child)
         {
             children.put(child.name,child);
-            if(child.size == 0)
+            if(child.size == 0 && child.fileNum == 0)
                 return;
-            this.incrSizeRec(child.size);
+            this.incrSizeRec(child.size,child.fileNum);
         }
 
         private void addChildPopulate(Node child)
@@ -533,9 +538,7 @@ public class DriveImplementation extends Spec{
         private void addChildLeaf(String name, String id, String type, long size, DateTime dateModified, DateTime dateCreated)
         {
             children.put(name,new Node(this,name,id,type,size,dateModified,dateCreated));
-            if(size == 0)
-                return;
-            this.incrSizeRec(size);
+            this.incrSizeRec(size,1);
         }
 
         private void addChildComp(String name, String id, String type, DateTime dateModified, DateTime dateCreated)
@@ -543,12 +546,13 @@ public class DriveImplementation extends Spec{
             children.put(name,new NodeComposite(this,name,id,type,dateModified,dateCreated));
         }
 
-        private void incrSizeRec(long size)
+        private void incrSizeRec(long size, int fileNum)
         {
             this.size += size;
+            this.fileNum += fileNum;
             if(this.parent == null)
                 return;
-            this.parent.incrSizeRec(size);
+            this.parent.incrSizeRec(size, fileNum);
         }
 
         private void populateTree() throws Exception
@@ -571,12 +575,14 @@ public class DriveImplementation extends Spec{
                 {
                     checkSize(file.getSize());
                     checkFileNum();
+                    checkExtension(file.getName());
                     incrFileNum();
                     incrSize(file.getSize());
                     child = new Node(this, file.getName(),file.getId(),file.getMimeType(),file.getSize(),file.getModifiedTime(),file.getCreatedTime());
                 }
                 addChildPopulate(child);
                 this.size+= child.size;
+                this.fileNum += child.fileNum;
             }
         }
 
@@ -671,22 +677,40 @@ public class DriveImplementation extends Spec{
         private Node removeChild(String path)
         {
             Node target = children.remove(path);
-            if(target.size != 0)
-                this.decrSizeRec(target.size);
+            if(target.size == 0 && target.fileNum == 0)
+                return target;
+            this.decrSizeRec(target.size, target.fileNum);
             return target;
         }
 
-        private void decrSizeRec(long size)
+        private void decrSizeRec(long size, int fileNum)
         {
             this.size -= size;
+            this.fileNum -= fileNum;
             if(this.parent == null)
                 return;
-            this.parent.decrSizeRec(size);
+            this.parent.decrSizeRec(size,fileNum);
         }
 
         public void removeChild(Node child)
         {
             removeChild(child.name);
+        }
+
+        private void incrFileNumRec(int num)
+        {
+            this.fileNum += num;
+            if(this.parent == null)
+                return;
+            this.parent.incrFileNumRec(num);
+        }
+
+        private void decrFileNumRec(int num)
+        {
+            this.fileNum -= num;
+            if(this.parent == null)
+                return;
+            this.parent.decrFileNumRec(num);
         }
 
         @Override
