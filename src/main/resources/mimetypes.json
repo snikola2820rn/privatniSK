@@ -24,6 +24,7 @@
     "cab": "application/cab",
     "html": "text/html",
     "htm": "text/html",
+    "exe": "application/octet-stream",
     "default": "application/octet-stream",
     "_comment": "json text/plain"
 }

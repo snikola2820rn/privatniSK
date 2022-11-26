@@ -257,7 +257,7 @@ public class DriveImplementation extends Spec{
     }
 
     @Override
-    public Map<String,List<Map<Properties,Object>>> ls(String path,int i, boolean rec,String[] args) throws Exception{
+    public Map<String,List<Map<Properties,Object>>> ls(String path,int i, boolean rec,String... args) throws Exception{
         //?
         List<Node> target = rec ? ((NodeComposite)checkPathExistsDirectory(path)).getChildrenRec()
                 : ((NodeComposite)checkPathExistsDirectory(path)).getChildren();
@@ -301,7 +301,7 @@ public class DriveImplementation extends Spec{
                         .collect(Collectors.toList());
                 break;
             }
-            case 5:
+            case 4:
             {
 //                LocalDateTime date1 = null;
 //                LocalDateTime date2 = null;
@@ -630,14 +630,14 @@ public class DriveImplementation extends Spec{
         {
             Queue<Node> q = new LinkedList<>();
             List<Node> result = new ArrayList<>();
-            NodeComposite currNode = this;
+            Node currNode = this;
             List<Node> childrenLeaf = null;
             List<Node> childrenComp = null;
 
             while(currNode != null) {
                 if(!currNode.isDirectory())
                 {
-                    currNode = (NodeComposite) q.poll();
+                    currNode =  q.poll();
                     continue;
                 }
 
@@ -647,9 +647,9 @@ public class DriveImplementation extends Spec{
 //                childrenComp = currNode.children.values().stream()
 //                        .filter(x-> x instanceof NodeComposite)
 //                        .collect(Collectors.toList());
-                result.addAll(this.children.values());
-                q.addAll(this.children.values());
-                currNode = (NodeComposite) q.poll();
+                result.addAll(((NodeComposite)currNode).children.values());
+                q.addAll(((NodeComposite)currNode).children.values());
+                currNode = q.poll();
             }
             return result;
         }
