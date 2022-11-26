@@ -231,7 +231,6 @@ public class DriveImplementation extends Spec{
         if (((NodeComposite)parent).children.containsKey(name))
             throw new Exception("Requested path already contains file of same name.");
         return true;
-        //ovo sto returna null ovde treba da vraca  obradjujegresku
     }
 
     private void loadDirectories() throws Exception
